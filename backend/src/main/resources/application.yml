@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: campuscare-helpdesk-api
+  datasource:
+    url: ${CAMPUSCARE_DB_URL:jdbc:mysql://localhost:3306/campuscare_helpdesk?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${CAMPUSCARE_DB_USERNAME:root}
+    password: ${CAMPUSCARE_DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: ${CAMPUSCARE_DDL_AUTO:update}
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
