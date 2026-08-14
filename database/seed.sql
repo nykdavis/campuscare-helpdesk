@@ -1,7 +1,10 @@
--- Optional local-development data
--- Apply schema.sql first, then run: mysql -u root -p < database/seed.sql
+-- Optional, non-sensitive demonstration data.
+-- Run after schema.sql while connected to the campuscare_helpdesk database.
+-- No user credentials are seeded: create users through /api/auth/register and
+-- provision the administrator through CAMPUSCARE_ADMIN_* deployment secrets.
 
-USE campuscare_helpdesk;
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+START TRANSACTION;
 
 INSERT INTO tickets (
     title,
@@ -46,3 +49,5 @@ WHERE NOT EXISTS (
     WHERE title = 'Library card is not active'
       AND student_email = 'rahul.mehta@example.com'
 );
+
+COMMIT;

@@ -1,7 +1,5 @@
-node_modules/
-dist/
-.idea/
-*.log
-.env
-.env.*
-README.md
+node_modules
+dist
+.git
+.idea
+npm-debug.log*

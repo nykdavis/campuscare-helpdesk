@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: campuscare
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: campuscare-helpdesk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/part-of: campuscare-helpdesk
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: backend
+          image: campuscare/backend:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CAMPUSCARE_DB_URL
+              value: jdbc:mysql://mysql:3306/campuscare_helpdesk?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+            - name: CAMPUSCARE_DB_USERNAME
+              value: root
+            - name: CAMPUSCARE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: campuscare-secrets
+                  key: MYSQL_ROOT_PASSWORD
+            - name: CAMPUSCARE_DDL_AUTO
+              value: update
+            - name: CAMPUSCARE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: campuscare-secrets
+                  key: CAMPUSCARE_JWT_SECRET
+            - name: CAMPUSCARE_JWT_EXPIRATION_SECONDS
+              value: "3600"
+            - name: CAMPUSCARE_ADMIN_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: campuscare-secrets
+                  key: CAMPUSCARE_ADMIN_NAME
+            - name: CAMPUSCARE_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: campuscare-secrets
+                  key: CAMPUSCARE_ADMIN_EMAIL
+            - name: CAMPUSCARE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: campuscare-secrets
+                  key: CAMPUSCARE_ADMIN_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1
+              memory: 1Gi

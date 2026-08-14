@@ -1,7 +1,4 @@
-target/
-.idea/
+target
+.git
+.idea
 *.iml
-*.log
-.env
-.env.*
-README.md
