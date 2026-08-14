@@ -1,7 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
+import './auth.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const SESSION_KEY = 'campuscare.session'
+
+function getSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY)) } catch { return null }
+}
+
+async function apiFetch(path, options = {}) {
+  const session = getSession()
+  const headers = { ...(options.headers || {}) }
+  if (session?.accessToken) headers.Authorization = `Bearer ${session.accessToken}`
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers })
+  if (response.status === 401) window.dispatchEvent(new Event('campuscare:unauthorized'))
+  return response
+}
 const categories = [['IT_SUPPORT','IT support'],['FACILITIES','Facilities'],['ACADEMICS','Academics'],['LIBRARY','Library'],['TRANSPORT','Transport'],['OTHER','Other']]
 const categoryLabels = Object.fromEntries(categories)
 const statusLabels = { OPEN: 'Open', IN_PROGRESS: 'In progress', CLOSED: 'Closed' }
@@ -21,26 +36,36 @@ function Icon({ name, size=20 }) {
 }
 
 function App() {
+  const [session, setSession] = useState(getSession)
+  const [authMode, setAuthMode] = useState('login')
+  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' })
+  const [authError, setAuthError] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
   const [tickets,setTickets] = useState([]), [loading,setLoading] = useState(true), [error,setError] = useState('')
   const [query,setQuery] = useState(''), [status,setStatus] = useState('ALL'), [category,setCategory] = useState('ALL')
   const [modalOpen,setModalOpen] = useState(false), [form,setForm] = useState(emptyForm), [formErrors,setFormErrors] = useState({})
   const [submitting,setSubmitting] = useState(false), [toast,setToast] = useState('')
 
-  const loadTickets = useCallback(async()=>{setLoading(true);setError('');try{const response=await fetch(`${API_URL}/api/tickets`);if(!response.ok)throw new Error();setTickets(await response.json())}catch{setError('We could not connect to CampusCare. Make sure the backend is running.')}finally{setLoading(false)}},[])
+  const loadTickets = useCallback(async()=>{if(!session)return;setLoading(true);setError('');try{const response=await apiFetch('/api/tickets');if(!response.ok)throw new Error();setTickets(await response.json())}catch{setError('We could not load your tickets. Please try again.')}finally{setLoading(false)}},[session])
   useEffect(()=>{loadTickets()},[loadTickets])
+  useEffect(()=>{const handleUnauthorized=()=>{localStorage.removeItem(SESSION_KEY);setSession(null)};window.addEventListener('campuscare:unauthorized',handleUnauthorized);return()=>window.removeEventListener('campuscare:unauthorized',handleUnauthorized)},[])
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(timer)},[toast])
 
   const filteredTickets=useMemo(()=>{const search=query.trim().toLowerCase();return tickets.filter(ticket=>(!search||[ticket.title,ticket.studentName,ticket.studentEmail].some(value=>value?.toLowerCase().includes(search)))&&(status==='ALL'||ticket.status===status)&&(category==='ALL'||ticket.category===category))},[tickets,query,status,category])
   const counts=useMemo(()=>({total:tickets.length,open:tickets.filter(t=>t.status==='OPEN').length,progress:tickets.filter(t=>t.status==='IN_PROGRESS').length,closed:tickets.filter(t=>t.status==='CLOSED').length}),[tickets])
 
   function validate(){const errors={};if(!form.title.trim())errors.title='Please enter a title.';if(!form.description.trim())errors.description='Please describe the issue.';if(!form.studentName.trim())errors.studentName='Please enter your name.';if(!/^\S+@\S+\.\S+$/.test(form.studentEmail))errors.studentEmail='Enter a valid email address.';setFormErrors(errors);return !Object.keys(errors).length}
-  async function createTicket(event){event.preventDefault();if(!validate())return;setSubmitting(true);try{const response=await fetch(`${API_URL}/api/tickets`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const body=await response.json();if(!response.ok){setFormErrors(body.validationErrors||{form:body.message||'Could not create ticket.'});return}setTickets(current=>[body,...current]);setForm(emptyForm);setModalOpen(false);setToast(`Ticket #${body.id} created successfully`)}catch{setFormErrors({form:'Could not connect to the server. Please try again.'})}finally{setSubmitting(false)}}
-  async function updateStatus(ticket,nextStatus){if(ticket.status===nextStatus)return;try{const response=await fetch(`${API_URL}/api/tickets/${ticket.id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:nextStatus})});if(!response.ok)throw new Error();const updated=await response.json();setTickets(current=>current.map(item=>item.id===updated.id?updated:item));setToast(`Ticket #${ticket.id} moved to ${statusLabels[nextStatus].toLowerCase()}`)}catch{setToast('Status update failed. Please try again.')}}
-  async function deleteTicket(ticket){if(!window.confirm(`Delete ticket #${ticket.id}? This cannot be undone.`))return;try{const response=await fetch(`${API_URL}/api/tickets/${ticket.id}`,{method:'DELETE'});if(!response.ok)throw new Error();setTickets(current=>current.filter(item=>item.id!==ticket.id));setToast(`Ticket #${ticket.id} deleted`)}catch{setToast('Ticket could not be deleted.')}}
+  async function authenticate(event){event.preventDefault();setAuthError('');setAuthLoading(true);try{const response=await fetch(`${API_URL}/api/auth/${authMode==='login'?'login':'register'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(authForm)});const body=await response.json();if(!response.ok){setAuthError(body.validationErrors?Object.values(body.validationErrors)[0]:body.message||'Authentication failed.');return}localStorage.setItem(SESSION_KEY,JSON.stringify(body));setSession(body);setAuthForm({name:'',email:'',password:''})}catch{setAuthError('Could not connect to CampusCare. Is the backend running?')}finally{setAuthLoading(false)}}
+  function logout(){localStorage.removeItem(SESSION_KEY);setSession(null);setTickets([])}
+  async function createTicket(event){event.preventDefault();if(!validate())return;setSubmitting(true);try{const response=await apiFetch('/api/tickets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});const body=await response.json();if(!response.ok){setFormErrors(body.validationErrors||{form:body.message||'Could not create ticket.'});return}setTickets(current=>[body,...current]);setForm(emptyForm);setModalOpen(false);setToast(`Ticket #${body.id} created successfully`)}catch{setFormErrors({form:'Could not connect to the server. Please try again.'})}finally{setSubmitting(false)}}
+  async function updateStatus(ticket,nextStatus){if(ticket.status===nextStatus)return;try{const response=await apiFetch(`/api/tickets/${ticket.id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:nextStatus})});if(!response.ok)throw new Error();const updated=await response.json();setTickets(current=>current.map(item=>item.id===updated.id?updated:item));setToast(`Ticket #${ticket.id} moved to ${statusLabels[nextStatus].toLowerCase()}`)}catch{setToast('Status update failed. Please try again.')}}
+  async function deleteTicket(ticket){if(!window.confirm(`Delete ticket #${ticket.id}? This cannot be undone.`))return;try{const response=await apiFetch(`/api/tickets/${ticket.id}`,{method:'DELETE'});if(!response.ok)throw new Error();setTickets(current=>current.filter(item=>item.id!==ticket.id));setToast(`Ticket #${ticket.id} deleted`)}catch{setToast('Ticket could not be deleted.')}}
   const formatDate=value=>value?new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',year:'numeric'}).format(new Date(value)):'Today'
 
+  if (!session) return <AuthScreen mode={authMode} setMode={setAuthMode} form={authForm} setForm={setAuthForm} error={authError} loading={authLoading} onSubmit={authenticate}/>
+
   return <div className="app-shell">
-    <header className="topbar"><a className="brand" href="#top"><span className="brand-mark"><Icon name="tickets" size={24}/></span><span><strong>CampusCare</strong><small>Student Helpdesk</small></span></a><nav><a className="active" href="#tickets">Tickets</a><a href="#support">Support</a></nav><button className="primary compact" onClick={()=>setModalOpen(true)}><Icon name="plus" size={18}/>New ticket</button></header>
+    <header className="topbar"><a className="brand" href="#top"><span className="brand-mark"><Icon name="tickets" size={24}/></span><span><strong>CampusCare</strong><small>Student Helpdesk</small></span></a><nav><a className="active" href="#tickets">Tickets</a><a href="#support">Support</a></nav><div className="user-menu"><span className="user-avatar">{session.user.name[0]}</span><span className="user-name">{session.user.name}</span><button className="logout-button" onClick={logout}>Log out</button></div><button className="primary compact" onClick={()=>setModalOpen(true)}><Icon name="plus" size={18}/>New ticket</button></header>
     <main id="top">
       <section className="hero-section"><div><span className="eyebrow">Student support, simplified</span><h1>How can we help<br/>you today?</h1><p>Report campus issues, follow their progress, and get back to what matters.</p><button className="primary hero-button" onClick={()=>setModalOpen(true)}><Icon name="plus"/>Create a ticket</button></div><div className="hero-art" aria-hidden="true"><div className="orb orb-one"/><div className="orb orb-two"/><div className="help-card card-back"><span/><span/><span/></div><div className="help-card card-front"><div className="check-ring"><Icon name="check" size={35}/></div><strong>We’re on it!</strong><small>Your request is in good hands.</small></div></div></section>
       <section className="stats"><Stat icon="inbox" color="blue" value={counts.total} label="Total tickets"/><Stat icon="alert" color="amber" value={counts.open} label="Open"/><Stat icon="clock" color="purple" value={counts.progress} label="In progress"/><Stat icon="check" color="green" value={counts.closed} label="Resolved"/></section>
@@ -63,3 +88,5 @@ function Stat({icon,color,value,label}){return <article><span className={`stat-i
 function State({icon,error,title,text,action}){return <div className={`state-card ${error?'error':''}`}>{icon==='loader'?<span className="loader"/>:<span className="empty-icon"><Icon name={error?'alert':'inbox'} size={30}/></span>}<h3>{title}</h3><p>{text}</p>{action}</div>}
 function Field({label,error,children}){return <label>{label}{children}{error&&<small className="field-error">{error}</small>}</label>}
 export default App
+
+function AuthScreen({mode,setMode,form,setForm,error,loading,onSubmit}){const login=mode==='login';return <div className="auth-shell"><div className="auth-art"><a className="brand auth-brand" href="#"><span className="brand-mark"><Icon name="tickets" size={24}/></span><span><strong>CampusCare</strong><small>Student Helpdesk</small></span></a><div className="auth-copy"><span className="eyebrow">Student support, simplified</span><h1>Help is closer<br/>than you think.</h1><p>One place to report campus issues, follow progress, and stay in the loop.</p><div className="auth-note"><span className="check-ring"><Icon name="check"/></span><span><strong>Support that moves with you</strong><small>Track every request from start to resolved.</small></span></div></div></div><div className="auth-panel"><div className="auth-form-wrap"><span className="eyebrow">Welcome to CampusCare</span><h2>{login?'Sign in to your account':'Create your student account'}</h2><p className="auth-subtitle">{login?'Pick up where you left off.':'Join the campus support community.'}</p><div className="auth-tabs"><button type="button" className={login?'selected':''} onClick={()=>setMode('login')}>Sign in</button><button type="button" className={!login?'selected':''} onClick={()=>setMode('register')}>Register</button></div><form onSubmit={onSubmit}>{!login&&<label>Full name<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Asha Rao"/></label>}<label>Student email<input required type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="you@example.com"/></label><label>Password<input required minLength="8" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="At least 8 characters"/></label>{error&&<div className="form-alert">{error}</div>}<button className="primary auth-submit" disabled={loading}>{loading?'Please wait...':login?'Sign in':'Create account'}<Icon name="arrow" size={17}/></button></form><small className="auth-footnote">Your account is protected with secure token authentication.</small></div></div></div>}

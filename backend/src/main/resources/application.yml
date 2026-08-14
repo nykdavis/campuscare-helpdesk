@@ -21,3 +21,12 @@ management:
     web:
       exposure:
         include: health,info
+
+campuscare:
+  jwt:
+    secret: ${CAMPUSCARE_JWT_SECRET}
+    expiration-seconds: ${CAMPUSCARE_JWT_EXPIRATION_SECONDS:3600}
+  admin:
+    name: ${CAMPUSCARE_ADMIN_NAME:CampusCare Admin}
+    email: ${CAMPUSCARE_ADMIN_EMAIL:}
+    password: ${CAMPUSCARE_ADMIN_PASSWORD:}
